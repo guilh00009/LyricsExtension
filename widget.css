@@ -1,0 +1,191 @@
+/* Google Fonts Import - handled in JS to avoid CSP issues or injected via link */
+
+#lyric-floating-widget {
+  position: fixed;
+  bottom: 100px;
+  right: 20px;
+  width: 350px;
+  height: 500px;
+  background: rgba(0, 0, 0, 0.3);
+  /* Transparent dark */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 25px rgba(255, 255, 255, 0.2), inset 0 0 10px rgba(255, 255, 255, 0.05);
+  /* Glowing effect */
+  z-index: 9999;
+  overflow: hidden;
+  font-family: 'Roboto', sans-serif;
+  color: white;
+  transition: opacity 0.3s ease;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+#lyric-floating-widget.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* PiP Mode: Widget takes full window */
+#lyric-floating-widget.pip-mode {
+  position: static;
+  width: 100%;
+  height: 100%;
+  transform: none;
+  border-radius: 0;
+  resize: none;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  /* Solid black background */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+#lyric-floating-widget.pip-mode .close-btn,
+#lyric-floating-widget.pip-mode #detach-lyrics-btn {
+  display: none;
+  /* Hide buttons in PiP mode (window controls handle it) */
+}
+
+/* Header with Close Button */
+.widget-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px;
+  /* background: rgba(255, 255, 255, 0.05); */
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 20px;
+  cursor: pointer;
+  transition: color 0.2s, text-shadow 0.2s;
+  padding: 0 5px;
+}
+
+.control-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 18px;
+  cursor: pointer;
+  transition: color 0.2s, text-shadow 0.2s;
+  padding: 0 5px;
+  margin-right: 5px;
+}
+
+.control-btn:hover {
+  color: #fff;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+}
+
+.close-btn:hover {
+  color: #fff;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+}
+
+/* Lyrics Container */
+.lyrics-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Hide scrollbar */
+  scrollbar-width: none;
+}
+
+.lyrics-container::-webkit-scrollbar {
+  display: none;
+}
+
+.lyric-line {
+  margin: 10px 0;
+  text-align: center;
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.5);
+  transition: all 0.4s ease;
+  cursor: default;
+  max-width: 100%;
+}
+
+.lyric-line.active {
+  color: #fff;
+  font-size: 22px;
+  font-weight: bold;
+  text-shadow: 0 0 15px rgba(255, 255, 255, 0.6);
+  transform: scale(1.05);
+}
+
+.loading-text,
+.error-text {
+  margin-top: auto;
+  margin-bottom: auto;
+  color: rgba(255, 255, 255, 0.7);
+  font-style: italic;
+}
+
+/* Epic Moment Styles */
+.lyric-line.active.is-epic {
+  animation: tremble 0.5s infinite;
+  /* Rapid shaking */
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.9), 0 0 10px #ff0055;
+  /* Add some flair */
+  color: #fff;
+  transform: scale(1.1);
+  /* Slightly larger */
+}
+
+@keyframes tremble {
+  0% {
+    transform: translate(1px, 1px) rotate(0deg) scale(1.1);
+  }
+
+  10% {
+    transform: translate(-1px, -2px) rotate(-1deg) scale(1.1);
+  }
+
+  20% {
+    transform: translate(-3px, 0px) rotate(1deg) scale(1.1);
+  }
+
+  30% {
+    transform: translate(3px, 2px) rotate(0deg) scale(1.1);
+  }
+
+  40% {
+    transform: translate(1px, -1px) rotate(1deg) scale(1.1);
+  }
+
+  50% {
+    transform: translate(-1px, 2px) rotate(-1deg) scale(1.1);
+  }
+
+  60% {
+    transform: translate(-3px, 1px) rotate(0deg) scale(1.1);
+  }
+
+  70% {
+    transform: translate(3px, 1px) rotate(-1deg) scale(1.1);
+  }
+
+  80% {
+    transform: translate(-1px, -1px) rotate(1deg) scale(1.1);
+  }
+
+  90% {
+    transform: translate(1px, 2px) rotate(0deg) scale(1.1);
+  }
+
+  100% {
+    transform: translate(1px, -2px) rotate(-1deg) scale(1.1);
+  }
+}

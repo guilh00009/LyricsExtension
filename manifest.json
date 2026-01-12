@@ -1,0 +1,34 @@
+{
+    "manifest_version": 3,
+    "name": "Floating Lyrics for YTM",
+    "version": "1.0",
+    "description": "Minimalist floating lyrics widget for YouTube Music",
+    "permissions": [],
+    "host_permissions": [
+        "https://music.youtube.com/*",
+        "https://lrclib.net/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "https://music.youtube.com/*"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "css": [
+                "widget.css"
+            ]
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "widget.css"
+            ],
+            "matches": [
+                "https://music.youtube.com/*"
+            ]
+        }
+    ]
+}
