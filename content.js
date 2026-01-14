@@ -50,6 +50,12 @@ function createWidget() {
     div.id = 'lyric-floating-widget';
 
     div.innerHTML = `
+    <!-- Video Background -->
+    <div id="video-background-container">
+      <video id="video-background" muted playsinline></video>
+      <div id="video-overlay"></div>
+    </div>
+    
     <div class="widget-header">
       <button class="control-btn" id="settings-btn" title="AI Settings">⚙️</button>
       <button class="control-btn" id="detach-lyrics-btn" title="Detach (Picture-in-Picture)">⧉</button>
@@ -80,6 +86,9 @@ function createWidget() {
     
     <canvas id="audio-visualizer"></canvas>
   `;
+
+    // Setup video background sync
+    setupVideoBackground(div);
 
     document.body.appendChild(div);
 
@@ -475,6 +484,31 @@ function startSyncLoop() {
             }
         }
 
+        // Check if we're in an "instrumental" gap (no lyrics being sung)
+        // This happens when current time is significantly past the current line
+        // and before the next line starts
+        let isInstrumental = false;
+        if (activeIndex >= 0 && activeIndex < lyrics.length - 1) {
+            const currentLine = lyrics[activeIndex];
+            const nextLine = lyrics[activeIndex + 1];
+            const lineGap = nextLine.time - currentLine.time;
+            const timeSinceLineStart = currTime - currentLine.time;
+
+            // If the gap is > 3 seconds AND we're past 80% of the way through this line's "duration"
+            // OR if the gap is large (> 5s), consider it instrumental after 2 seconds
+            if (lineGap > 5 && timeSinceLineStart > 2) {
+                isInstrumental = true;
+            } else if (lineGap > 3 && timeSinceLineStart > lineGap * 0.8) {
+                isInstrumental = true;
+            }
+        } else if (activeIndex === -1) {
+            // Before the first lyric
+            isInstrumental = true;
+        }
+
+        // Update video background blur state
+        updateVideoBackgroundState(isInstrumental);
+
         if (activeIndex !== lastActiveIndex) {
             updateActiveLine(activeIndex);
             lastActiveIndex = activeIndex;
@@ -852,6 +886,108 @@ function spawnEffect(effect, container) {
         // For centered effects (core centered + AI), don't override positioning - let CSS handle it
 
         container.appendChild(el);
+    }
+}
+
+// --- Video Background ---
+let videoBackgroundElement = null;
+let sourceVideoElement = null;
+
+function setupVideoBackground(widgetElement) {
+    videoBackgroundElement = widgetElement.querySelector('#video-background');
+    if (!videoBackgroundElement) return;
+
+    // Find the YouTube Music video element
+    const findAndSyncVideo = () => {
+        sourceVideoElement = document.querySelector('video');
+        if (!sourceVideoElement) {
+            console.log("Video Background: No source video found. Retrying in 2s...");
+            setTimeout(findAndSyncVideo, 2000);
+            return;
+        }
+
+        // Use captureStream to mirror the video
+        try {
+            if (sourceVideoElement.captureStream) {
+                const stream = sourceVideoElement.captureStream();
+                videoBackgroundElement.srcObject = stream;
+                console.log("Video Background: Stream captured successfully!");
+
+                // Function to sync play state
+                const syncPlayState = () => {
+                    if (!sourceVideoElement.paused) {
+                        videoBackgroundElement.play().catch(() => { });
+                    }
+                };
+
+                // Listen to source video events for better sync
+                sourceVideoElement.addEventListener('play', () => {
+                    videoBackgroundElement.play().catch(() => { });
+                });
+
+                sourceVideoElement.addEventListener('pause', () => {
+                    videoBackgroundElement.pause();
+                });
+
+                sourceVideoElement.addEventListener('seeked', () => {
+                    videoBackgroundElement.currentTime = sourceVideoElement.currentTime;
+                });
+
+                // Initial sync if already playing
+                if (!sourceVideoElement.paused) {
+                    syncPlayState();
+                }
+
+                // Fallback periodic sync for edge cases
+                setInterval(() => {
+                    if (sourceVideoElement && videoBackgroundElement) {
+                        const diff = Math.abs(videoBackgroundElement.currentTime - sourceVideoElement.currentTime);
+                        if (diff > 1) {
+                            videoBackgroundElement.currentTime = sourceVideoElement.currentTime;
+                        }
+                    }
+                }, 2000);
+
+            } else {
+                console.log("Video Background: captureStream not available");
+            }
+
+        } catch (e) {
+            console.error("Video Background: Failed to capture stream", e);
+        }
+    };
+
+    // Start finding video after a short delay
+    setTimeout(findAndSyncVideo, 1000);
+}
+
+let lastVideoBackgroundState = null; // Track previous state to know when transitioning
+
+function updateVideoBackgroundState(isInstrumental) {
+    if (!widget) return;
+    const container = widget.querySelector('#video-background-container');
+    if (!container) return;
+
+    if (isInstrumental) {
+        // Always go clear during instrumental
+        container.classList.add('clear');
+        container.classList.remove('blurred');
+        lastVideoBackgroundState = 'clear';
+    } else {
+        // When lyrics are playing: 40% chance to switch back to blurry
+        // But only apply probability when transitioning FROM clear TO blurred
+        const isCurrentlyClear = container.classList.contains('clear') || lastVideoBackgroundState === 'clear';
+
+        if (isCurrentlyClear) {
+            // Transitioning from clear to blurred - apply 40% probability
+            if (Math.random() < 0.3) {
+                container.classList.add('blurred');
+                container.classList.remove('clear');
+                lastVideoBackgroundState = 'blurred';
+            }
+            // else: stay clear (60% of the time)
+        }
+        // If already blurred, stay blurred (no change needed)
     }
 }
 
