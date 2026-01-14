@@ -6,7 +6,8 @@
     "permissions": [],
     "host_permissions": [
         "https://music.youtube.com/*",
-        "https://lrclib.net/*"
+        "https://lrclib.net/*",
+        "https://generativelanguage.googleapis.com/*"
     ],
     "content_scripts": [
         {

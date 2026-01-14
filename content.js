@@ -29,6 +29,9 @@ function init() {
     createWidget();
     startPolling();
     startSyncLoop();
+
+    // Attempt to set up visualizer slightly later to ensure video element exists
+    setTimeout(setupAudioVisualizer, 1000);
 }
 
 function injectStyles() {
@@ -59,6 +62,9 @@ function createWidget() {
         <label>
             <input type="checkbox" id="ai-enable-toggle"> Enable Gemini AI
         </label>
+        <label>
+            <input type="checkbox" id="translate-toggle"> Translate to Portuguese 🇧🇷
+        </label>
         <div class="input-group">
             <label for="ai-api-key">Gemini API Key:</label>
             <input type="password" id="ai-api-key" placeholder="Paste your API Key here">
@@ -71,6 +77,8 @@ function createWidget() {
     <div class="lyrics-container" id="lyrics-content">
       <div class="loading-text">Waiting for music...</div>
     </div>
+    
+    <canvas id="audio-visualizer"></canvas>
   `;
 
     document.body.appendChild(div);
@@ -88,12 +96,16 @@ function createWidget() {
     const saveBtn = div.querySelector('#save-settings-btn');
     const apiKeyInput = div.querySelector('#ai-api-key');
     const enableToggle = div.querySelector('#ai-enable-toggle');
+    const translateToggle = div.querySelector('#translate-toggle');
 
     // Load saved settings
     const savedKey = localStorage.getItem('gemini_api_key');
     const savedEnabled = localStorage.getItem('gemini_enabled') === 'true';
+    const savedTranslate = localStorage.getItem('gemini_sub_translate') === 'true';
+
     if (savedKey) apiKeyInput.value = savedKey;
     enableToggle.checked = savedEnabled;
+    translateToggle.checked = savedTranslate;
 
     settingsBtn.addEventListener('click', () => {
         settingsPanel.classList.toggle('hidden');
@@ -102,18 +114,24 @@ function createWidget() {
     saveBtn.addEventListener('click', () => {
         const key = apiKeyInput.value.trim();
         const enabled = enableToggle.checked;
+        const translation = translateToggle.checked;
 
-        if (enabled && !key) {
-            alert("Please enter a valid API Key to enable AI effects.");
+        if ((enabled || translation) && !key) {
+            alert("Please enter a valid API Key to enable AI features.");
             return;
         }
 
         localStorage.setItem('gemini_api_key', key);
         localStorage.setItem('gemini_enabled', enabled);
+        localStorage.setItem('gemini_sub_translate', translation);
 
         settingsPanel.classList.add('hidden');
         alert("Settings Saved! AI effects will generate on the next song.");
     });
+    settingsPanel.classList.add('hidden');
+    alert("Settings Saved! AI effects will generate on the next song.");
+    // Initialize Audio Visualizer
+    setupAudioVisualizer();
 }
 
 
@@ -309,10 +327,30 @@ async function fetchLyrics(track, artist, duration) {
                 await Promise.race([aiPromise, timeoutPromise]);
             }
 
+            // Translation Logic
+            if (localStorage.getItem('gemini_sub_translate') === 'true') {
+                lyricsContainer.innerHTML = '<div class="loading-text" style="color:#ffd700; animation: pulse 1s infinite;">Translating to Portuguese... 🇧🇷</div>';
+                const translated = await translateLyrics(lyrics, artist, cleanTrack);
+                if (translated) {
+                    lyrics = translated;
+                }
+            }
+
             renderLyrics(lyrics);
 
         } else if (bestMatch.plainLyrics) {
-            lyricsContainer.innerHTML = `<div class="lyric-line">${bestMatch.plainLyrics.replace(/\n/g, '<br>')}</div>`;
+            let content = bestMatch.plainLyrics;
+
+            // Translation Logic (Plain)
+            if (localStorage.getItem('gemini_sub_translate') === 'true') {
+                lyricsContainer.innerHTML = '<div class="loading-text" style="color:#ffd700; animation: pulse 1s infinite;">Translating to Portuguese... 🇧🇷</div>';
+                const translated = await translateLyrics(content, artist, cleanTrack);
+                if (translated) {
+                    content = translated;
+                }
+            }
+
+            lyricsContainer.innerHTML = `<div class="lyric-line">${content.replace(/\n/g, '<br>')}</div>`;
         } else {
             throw new Error("No text content");
         }
@@ -635,6 +673,89 @@ function injectAiEffects(effects) {
     EFFECTS_MAP.push(...coreEffects, ...newAiEffects);
 }
 
+// --- Translation Logic ---
+async function translateLyrics(lyricsData, artist, track) {
+    const apiKey = localStorage.getItem('gemini_api_key');
+    if (!apiKey) return null;
+
+    console.log(`Translating lyrics for: ${track}...`);
+
+    let isSynced = Array.isArray(lyricsData);
+    let prompt = "";
+
+    if (isSynced) {
+        // Extract just the text to save tokens and simplify
+        const lines = lyricsData.map(l => l.text).join('\n');
+        prompt = `
+You are a professional translator. 
+Translate the following song lyrics from English (or original language) to **Portuguese (Brazil)**.
+Song: "${track}" by "${artist}".
+
+IMPORTANT INSTRUCTIONS:
+1. Return ONLY the translated lines.
+2. Maintain the EXACT same number of lines as the input.
+3. Preserve the meaning and tone.
+4. If a line is empty, keep it empty.
+5. Do NOT include timestamps in your output, just the raw text lines corresponding to the input.
+
+Input:
+${lines}
+`;
+    } else {
+        prompt = `
+You are a professional translator. 
+Translate the following song lyrics from English (or original language) to **Portuguese (Brazil)**.
+Song: "${track}" by "${artist}".
+
+IMPORTANT INSTRUCTIONS:
+1. Return ONLY the translated text.
+2. Preserve the formatting (line breaks).
+
+Input:
+${lyricsData}
+`;
+    }
+
+    try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+        });
+
+        if (!response.ok) throw new Error("Translation API Limit/Error");
+
+        const data = await response.json();
+        let translatedText = data.candidates[0].content.parts[0].text.trim();
+
+        // Clean markdown if present
+        translatedText = translatedText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+        if (isSynced) {
+            const translatedLines = translatedText.split('\n');
+            // Re-attach timestamps
+            // Safety check for length mismatch
+            if (Math.abs(translatedLines.length - lyricsData.length) > 5) {
+                console.warn("Translation line count mismatch significantly. Aborting translation sync.");
+                return null;
+            }
+
+            return lyricsData.map((item, index) => ({
+                time: item.time,
+                text: translatedLines[index] || item.text // Fallback to original if index out of bounds
+            }));
+        } else {
+            return translatedText;
+        }
+
+    } catch (e) {
+        console.error("Translation Failed:", e);
+        return null;
+    }
+}
+
+
 function updateActiveLine(index) {
     const lines = lyricsContainer.querySelectorAll('.lyric-line');
     if (!lines.length) return;
@@ -671,9 +792,12 @@ function triggerEffects(text) {
     }
 
     // SPECIAL RULE: If "vision" (see/saw) is present, only show that effect and ignore others.
+    // 80% probability to prevent overuse since these words are common
     const visionEffect = EFFECTS_MAP.find(e => e.id === 'vision');
     if (visionEffect && visionEffect.regex.test(text)) {
-        spawnEffect(visionEffect, overlay);
+        if (Math.random() < 0.8) {
+            spawnEffect(visionEffect, overlay);
+        }
         return; // Stop here, don't trigger others
     }
 
@@ -681,6 +805,9 @@ function triggerEffects(text) {
     EFFECTS_MAP.forEach(effect => {
         // Skip vision since we handled it (though it wouldn't match here if we returned, but good safety)
         if (effect.id === 'vision') return;
+
+        // 80% probability for "thinking" effect to prevent overuse since these words are common
+        if (effect.id === 'thinking' && Math.random() >= 0.8) return;
 
         if (effect.regex.test(text)) {
             spawnEffect(effect, overlay);
@@ -725,6 +852,126 @@ function spawnEffect(effect, container) {
         // For centered effects (core centered + AI), don't override positioning - let CSS handle it
 
         container.appendChild(el);
+    }
+}
+
+// --- Audio Visualizer ---
+let audioContext = null;
+let analyser = null;
+let dataArray = null;
+let visualizerCanvas = null;
+let visualizerCtx = null;
+let audioSource = null;
+
+function setupAudioVisualizer() {
+    // 1. Find the video element
+    const videoElement = document.querySelector('video');
+    if (!videoElement) {
+        console.log("Visualizer: No video element found yet. Retrying in 2s...");
+        setTimeout(setupAudioVisualizer, 2000);
+        return;
+    }
+
+    // 2. Setup Canvas
+    if (!widget) return;
+    visualizerCanvas = widget.querySelector('#audio-visualizer');
+    if (!visualizerCanvas) return;
+
+    visualizerCtx = visualizerCanvas.getContext('2d');
+
+    // Resize canvas
+    function resizeCanvas() {
+        if (visualizerCanvas) {
+            visualizerCanvas.width = visualizerCanvas.clientWidth;
+            visualizerCanvas.height = visualizerCanvas.clientHeight;
+        }
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // 3. Initialize Audio Context (requires user interaction usually, but here we hook into existing media usually OK)
+    // We try/catch because sometimes browsers block Autoplay/Context until click
+    try {
+        if (!audioContext) {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioContext = new AudioContext();
+        }
+
+        if (!analyser) {
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 64; // Low res for bars looks retro/clean
+            const bufferLength = analyser.frequencyBinCount;
+            dataArray = new Uint8Array(bufferLength);
+        }
+
+        // 4. Connect Source (Check if already connected to avoid error)
+        if (!audioSource) {
+            // Important: This can fail with CORS if crossOrigin isn't set. 
+            // YTM sets crossOrigin="anonymous" usually, but sometimes not.
+            try {
+                audioSource = audioContext.createMediaElementSource(videoElement);
+                audioSource.connect(analyser);
+                analyser.connect(audioContext.destination); // Connect back to output so we can hear it!
+                console.log("Visualizer: Audio connected successfully!");
+            } catch (err) {
+                console.warn("Visualizer: Failed to connect media element source. Likely CORS issue or already connected.", err);
+                // If it fails, we might not get visualization, but audio still plays.
+            }
+        }
+
+        // Start Render Loop
+        renderVisualizer();
+
+    } catch (e) {
+        console.error("Visualizer Setup Error:", e);
+    }
+}
+
+function renderVisualizer() {
+    requestAnimationFrame(renderVisualizer);
+
+    if (!analyser || !visualizerCtx || !visualizerCanvas) return;
+
+    // Get frequency data
+    analyser.getByteFrequencyData(dataArray);
+
+    const width = visualizerCanvas.width;
+    const height = visualizerCanvas.height;
+
+    visualizerCtx.clearRect(0, 0, width, height);
+
+    const barWidth = (width / dataArray.length) * 2.5; // Spread them out
+    let barHeight;
+    let x = 0;
+
+    // Center the bars? Or just standard left-to-right?
+    // Let's do a centered "Mirrored" look for maximum "Cool"
+
+    const centerY = height; // Draw from bottom up
+
+    for (let i = 0; i < dataArray.length; i++) {
+        barHeight = dataArray[i] / 2; // Scale down
+
+        // Gradient Color
+        const gradient = visualizerCtx.createLinearGradient(0, height, 0, height - barHeight);
+        gradient.addColorStop(0, `rgba(100, 100, 255, 0.8)`); // Blueish base
+        gradient.addColorStop(1, `rgba(255, 50, 150, 0.8)`); // Pinkish top
+
+        visualizerCtx.fillStyle = gradient;
+
+        // Simple Bottom-Up Bars
+        // visualizerCtx.fillRect(x, height - barHeight, barWidth, barHeight);
+
+        // Rounded Bars
+        const radius = 5;
+        // visualizerCtx.beginPath();
+        // visualizerCtx.roundRect(x, height - barHeight, barWidth, barHeight, [radius, radius, 0, 0]);
+        // visualizerCtx.fill();
+
+        // Let's try floating bars (more modern)
+        visualizerCtx.fillRect(x, height - barHeight, barWidth - 2, barHeight);
+
+        x += barWidth;
     }
 }
 
